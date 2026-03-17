@@ -40,12 +40,14 @@ export default function Home() {
     {
       id: "1",
       sender: "ai",
-      text: "Namaste! I am Kisan Saathi 🌾, your Smart Farming AI Assistant.\n\nનમસ્તે! હું કિસાન સાથી છું, તમારો સ્માર્ટ ખેતી AI સહાયક.\n\nHow can I help you today? (Ask me about weather, irrigation, risk of disease, etc.)",
+      text: "નમસ્તે! હું કિસાન સાથી છું 🌾, તમારો સ્માર્ટ ખેતી AI સહાયક.\n\nNamaste! I am Kisan Saathi, your Smart Farming AI Assistant.\n\nહું તમને આજે કેવી રીતે મદદ કરી શકું? (How can I help you today?)",
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     }
   ]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [userLocation, setUserLocation] = useState<string>("");
+  const [userCrops, setUserCrops] = useState<string[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -57,7 +59,7 @@ export default function Home() {
   }, [messages, isLoading]);
 
   const handleSend = async () => {
-    if (!input.trim()) return;
+    if (!input.trim() || isLoading) return;
 
     const userMsg: Message = {
       id: Date.now().toString(),
@@ -76,7 +78,11 @@ export default function Home() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ message: userMsg.text }),
+        body: JSON.stringify({ 
+          message: userMsg.text,
+          current_location: userLocation || undefined,
+          known_crops: userCrops.length > 0 ? userCrops : undefined
+        }),
       });
 
       if (!response.ok) {
@@ -97,10 +103,20 @@ export default function Home() {
           action_plan: data.action_plan,
           reason: data.reason
         },
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      };
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })      };
 
       setMessages((prev) => [...prev, aiMsg]);
+
+      // Save memory for detected crop
+      if (data.detected_crop && data.detected_crop.toLowerCase() !== "unknown") {
+        setUserCrops(prev => {
+          if (!prev.includes(data.detected_crop)) {
+            return [...prev, data.detected_crop];
+          }
+          return prev;
+        });
+      }
+
     } catch (error) {
       console.error(error);
       const errMsg: Message = {
@@ -118,6 +134,49 @@ export default function Home() {
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
       handleSend();
+    }
+  };
+
+  const requestLocation = () => {
+    if ("geolocation" in navigator) {
+      setIsLoading(true);
+      navigator.geolocation.getCurrentPosition(async (position) => {
+        try {
+          const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${position.coords.latitude}&lon=${position.coords.longitude}&format=json`);
+          const data = await res.json();
+          const city = data.address.city || data.address.state_district || data.address.state || "Unknown";
+          
+          if (city !== "Unknown") {
+            setUserLocation(city);
+            setMessages(prev => [...prev, {
+              id: Date.now().toString(),
+              sender: "ai",
+              text: `તમારું લોકેશન સેટ કરવામાં આવ્યું છે: ${city}\n(Location saved: ${city})`,
+              timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            }]);
+          } else {
+            throw new Error("City not found");
+          }
+        } catch (error) {
+          console.error(error);
+          setMessages(prev => [...prev, {
+            id: Date.now().toString(),
+            sender: "ai",
+            text: "હું તમારું લોકેશન શોધી શક્યો નથી. કૃપા કરીને તેને મેસેજમાં મેન્યુઅલી લખો.\n(Location access failed, please type it manually.)",
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          }]);
+        } finally {
+          setIsLoading(false);
+        }
+      }, (error) => {
+        setIsLoading(false);
+        setMessages(prev => [...prev, {
+          id: Date.now().toString(),
+          sender: "ai",
+          text: "તમે લોકેશનની પરવાનગી નકારી છે. કૃપા કરીને તમારું લોકેશન મેસેજમાં મેન્યુઅલી લખો.\n(Location permission denied. Please type it in the chat.)",
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        }]);
+      });
     }
   };
 
@@ -182,12 +241,12 @@ export default function Home() {
                     {msg.data.risk_scores && (
                       <div className="flex flex-col gap-1.5 border-b border-gray-200 pb-2">
                         <div className="flex items-center text-red-600 font-semibold text-sm">
-                          <Activity size={14} className="mr-1" /> Risk Intelligence
+                          <Activity size={14} className="mr-1" /> જોખમ વિશ્લેષણ (Risk Intelligence)
                         </div>
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                           <div className="bg-white p-2 rounded-lg border border-gray-100 shadow-sm flex flex-col items-center">
                             <Leaf size={14} className="text-gray-500 mb-1" />
-                            <span className="text-xs text-center text-gray-500 mb-1">Disease Risk</span>
+                            <span className="text-xs text-center text-gray-500 mb-1">રોગનું જોખમ</span>
                             <div className="w-full bg-gray-200 rounded-full h-1.5 mb-1">
                               <div className={`h-1.5 rounded-full ${getRiskColor(msg.data.risk_scores.disease_risk)}`} style={{ width: `${msg.data.risk_scores.disease_risk}%` }}></div>
                             </div>
@@ -195,7 +254,7 @@ export default function Home() {
                           </div>
                           <div className="bg-white p-2 rounded-lg border border-gray-100 shadow-sm flex flex-col items-center">
                             <Droplet size={14} className="text-gray-500 mb-1" />
-                            <span className="text-xs text-center text-gray-500 mb-1">Water Need</span>
+                            <span className="text-xs text-center text-gray-500 mb-1">પાણીની જરૂરિયાત</span>
                             <div className="w-full bg-gray-200 rounded-full h-1.5 mb-1">
                               <div className={`h-1.5 rounded-full ${getRiskColor(msg.data.risk_scores.irrigation_need)}`} style={{ width: `${msg.data.risk_scores.irrigation_need}%` }}></div>
                             </div>
@@ -203,7 +262,7 @@ export default function Home() {
                           </div>
                           <div className="bg-white p-2 rounded-lg border border-gray-100 shadow-sm flex flex-col items-center">
                             <AlertTriangle size={14} className="text-gray-500 mb-1" />
-                            <span className="text-xs text-center text-gray-500 mb-1">Spray Eff.</span>
+                            <span className="text-xs text-center text-gray-500 mb-1">દવાની અસર</span>
                             <div className="w-full bg-gray-200 rounded-full h-1.5 mb-1">
                               <div className={`h-1.5 rounded-full ${msg.data.risk_scores.spray_effectiveness > 50 ? 'bg-green-500' : 'bg-red-500'}`} style={{ width: `${msg.data.risk_scores.spray_effectiveness}%` }}></div>
                             </div>
@@ -219,7 +278,7 @@ export default function Home() {
                         {msg.data.decisions && msg.data.decisions.length > 0 && (
                           <div>
                             <div className="flex items-center text-blue-700 font-semibold text-sm mb-1">
-                              <Info size={14} className="mr-1" /> AI Decisions
+                              <Info size={14} className="mr-1" /> મુખ્ય નિર્ણયો (Decisions)
                             </div>
                             <ul className="text-sm text-gray-700 pl-5 list-disc space-y-0.5">
                               {msg.data.decisions.map((d, i) => <li key={i}>{d}</li>)}
@@ -229,7 +288,7 @@ export default function Home() {
                         {msg.data.action_plan && msg.data.action_plan.length > 0 && (
                           <div className="mt-1">
                             <div className="flex items-center text-emerald-700 font-semibold text-sm mb-1">
-                              <CheckCircle size={14} className="mr-1" /> Action Plan
+                              <CheckCircle size={14} className="mr-1" /> કાર્ય યોજના (Action Plan)
                             </div>
                             <ul className="text-sm text-gray-700 pl-5 list-decimal space-y-0.5">
                               {msg.data.action_plan.map((a, i) => <li key={i}>{a}</li>)}
@@ -238,7 +297,7 @@ export default function Home() {
                         )}
                         {msg.data.reason && (
                            <div className="mt-2 text-xs text-gray-500 italic border-t border-gray-200 pt-2">
-                             <strong>Reason:</strong> {msg.data.reason}
+                             <strong>કારણ (Reason):</strong> {msg.data.reason}
                            </div>
                         )}
                       </div>
@@ -270,7 +329,7 @@ export default function Home() {
             <div className="flex flex-col self-start max-w-[75%]">
               <div className="p-3 rounded-2xl bubble-ai shadow-md flex items-center gap-1.5 text-sm text-gray-500">
                 <Leaf size={14} className="text-emerald-500 animate-pulse" />
-                <span>Kisan Saathi is thinking</span>
+                <span>કિસાન સાથી વિચારી રહ્યા છે (Thinking)</span>
                 <span className="flex">
                   <span className="w-1.5 h-1.5 bg-gray-400 rounded-full mx-[1px] typing-dot"></span>
                   <span className="w-1.5 h-1.5 bg-gray-400 rounded-full mx-[1px] typing-dot"></span>
@@ -282,6 +341,19 @@ export default function Home() {
           <div ref={messagesEndRef} />
         </main>
 
+        {/* Quick Action Bar for Initial Setup */}
+        {!userLocation && messages.length < 5 && (
+          <div className="bg-gray-50 px-4 py-2 flex gap-2 border-t border-gray-200 overflow-x-auto shrink-0 shadow-inner">
+             <button 
+               onClick={requestLocation}
+               disabled={isLoading}
+               className="flex items-center gap-1.5 bg-blue-100 text-blue-700 hover:bg-blue-200 py-1.5 px-3 rounded-full text-xs font-semibold whitespace-nowrap transition-colors border border-blue-200"
+             >
+               <MapPin size={14} /> ભૌગોલિક સ્થાન મોકલો (Auto Location)
+             </button>
+          </div>
+        )}
+
         {/* Input Area */}
         <footer className="bg-gray-50 p-3 flex gap-2 border-t border-gray-200 shrink-0 shadow-[0_-2px_10px_rgba(0,0,0,0.02)] sm:p-4">
           <div className="flex-1 rounded-full bg-white flex items-center shadow-sm border border-gray-300 overflow-hidden pr-2">
@@ -292,7 +364,7 @@ export default function Home() {
               onKeyDown={handleKeyDown}
               placeholder="Message..." 
               className="flex-1 bg-transparent border-none outline-none py-3 px-4 text-sm text-gray-800"
-              disabled={isLoading}
+              autoFocus
             />
           </div>
           <button 

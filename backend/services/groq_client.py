@@ -50,8 +50,8 @@ def _mock_llm_response(prompt: str, system_prompt: str = "") -> str:
     system_lower = system_prompt.lower()
     
     # Try to extract location and crop from prompt
-    default_location = "Gujarat"
-    default_crop = "Cotton"
+    default_location = "unknown"
+    default_crop = "unknown"
     
     # Simple extraction using regex (looking for words after 'in ' or 'for ')
     loc_match = re.search(r'in\s+([a-zA-Z]+)', prompt_lower)
@@ -59,7 +59,7 @@ def _mock_llm_response(prompt: str, system_prompt: str = "") -> str:
         default_location = loc_match.group(1).capitalize()
         
     crop_match = re.search(r'for\s+([a-zA-Z]+)', prompt_lower)
-    if crop_match and crop_match.group(1) not in ['only', 'valid', 'the']:
+    if crop_match and crop_match.group(1) not in ['only', 'valid', 'the', 'my', 'our']:
         default_crop = crop_match.group(1).capitalize()
         
     # Override if specific common cities are mentioned
@@ -74,15 +74,40 @@ def _mock_llm_response(prompt: str, system_prompt: str = "") -> str:
         if crop in prompt_lower:
             default_crop = crop.capitalize()
             break
-    
-    # Identify stage by system prompt
+            
+    gu_crops = {
+        'ઘઉં': 'Wheat',
+        'ચોખા': 'Rice',
+        'ડાંગર': 'Rice',
+        'કપાસ': 'Cotton',
+        'શેરડી': 'Sugarcane',
+        'મકાઈ': 'Maize',
+        'સોયાબીન': 'Soybean',
+        'સરસવ': 'Mustard',
+        'બાજરી': 'Bajra',
+        'જુવાર': 'Jowar',
+        'મગફળી': 'Groundnut',
+        'ડુંગળી': 'Onion',
+        'બટાકા': 'Potato',
+        'ટામેટા': 'Tomato',
+        'કેરી': 'Mango',
+        'કેળા': 'Banana',
+        'કેળાં': 'Banana'
+    }
+    for gu_name, en_name in gu_crops.items():
+        if gu_name in prompt_lower:
+            default_crop = en_name
+            break
+            
+    # Stage overrides
     if "input parser" in system_lower:
         # Stage 1: Normalize
         res = {
             "crop": default_crop,
-            "action": "check",
+            "action": "unknown" if "intent" not in prompt_lower else "check",
             "location": default_location,
-            "intent": "User query",
+            "intent": prompt_lower,
+            "time_horizon": "today",
             "is_valid_agri_query": True
         }
         return json.dumps(res)
@@ -90,9 +115,9 @@ def _mock_llm_response(prompt: str, system_prompt: str = "") -> str:
     elif "farming assistant" in system_lower or "decision" in system_lower:
         # Stage 4: Decision
         res = {
-            "decisions": [f"Monitor {default_crop} closely in {default_location}.", "Hold off on irrigation if rain is expected."],
-            "action_plan": ["Check soil moisture tomorrow.", "Wait for predicted weather changes."],
-            "reason": f"Based on location {default_location} and current weather data."
+            "decisions": [f"{default_location} માં {default_crop} પર નજીકથી નજર રાખો.", "જો વરસાદની સંભાવના હોય તો સિંચાઈ ટાળો."],
+            "action_plan": ["આવતીકાલે જમીનનો ભેજ તપાસો.", "હવામાનના અંદાજિત ફેરફારોની રાહ જુઓ."],
+            "reason": f"{default_location} ના વર્તમાન હવામાન ડેટા પર આધારિત."
         }
         return json.dumps(res)
         
@@ -100,7 +125,7 @@ def _mock_llm_response(prompt: str, system_prompt: str = "") -> str:
         # Stage 5: Humanize
         english = f"Namaste farmer friend! Based on the weather and risk data for {default_location}, my advice is to monitor your {default_crop} crop. Hold off on heavy irrigation if rain is likely."
         gujarati = f"નમસ્તે ખેડૂત મિત્ર! {default_location} માટે હવામાન અને જોખમના ડેટાના આધારે, મારી સલાહ છે કે તમારા {default_crop} પાકનું નિરીક્ષણ કરો. જો વરસાદની સંભાવના હોય તો ભારે સિંચાઈ ટાળો."
-        return f"{english}\n\n{gujarati}"
+        return f"{gujarati}\n\n{english}"
     
     # Fallback
     return '{"status": "mock data returned"}'

@@ -17,7 +17,11 @@ async def chat_endpoint(request: ChatRequest):
         
     try:
         # Stage 1: Normalize
-        normalized = normalize_input(request.message)
+        normalized = normalize_input(
+            request.message, 
+            current_location=request.current_location, 
+            known_crops=request.known_crops
+        )
         
         # Guard clause for non-agri requests (optional approach)
         if not normalized.is_valid_agri_query:
@@ -25,6 +29,23 @@ async def chat_endpoint(request: ChatRequest):
                 reply="Namaste! I am Kisan Saathi, your farming assistant. I can help you with crop advisory, weather, and decisions. Please ask a farming related question!\n\nનમસ્તે! હું કિસાન સાથી છું, તમારો ખેતી સહાયક. કૃપા કરીને ખેતી સંબંધિત પ્રશ્ન પૂછો!",
                 original_message=request.message,
                 location=normalized.location
+            )
+            
+        # Guard clause for missing required info (Location, Crop)
+        missing_entities = []
+        if normalized.crop.lower() == "unknown":
+            missing_entities.append("Crop (e.g., Cotton, Wheat)")
+        if normalized.location.lower() == "unknown":
+            missing_entities.append("Location (e.g., Surat, Pune)")
+            
+        if missing_entities:
+            missing_str = " and ".join(missing_entities)
+            gu_missing = " અને ".join(["પાક (Crop)" if "Crop" in m else "સ્થાન (Location)" for m in missing_entities])
+            
+            reply_msg = f"સચોટ સલાહ માટે, કૃપા કરીને તમારા સંદેશમાં તમારું **{gu_missing}** જણાવો.\n\nTo provide you with the most accurate advice, please specify your **{missing_str}** in your message."
+            return ChatResponse(
+                reply=reply_msg,
+                original_message=request.message
             )
             
         # Stage 2: Weather & Climate
@@ -50,7 +71,8 @@ async def chat_endpoint(request: ChatRequest):
             decisions=decisions.decisions,
             action_plan=decisions.action_plan,
             reason=decisions.reason,
-            original_message=request.message
+            original_message=request.message,
+            detected_crop=normalized.crop
         )
         
     except Exception as e:

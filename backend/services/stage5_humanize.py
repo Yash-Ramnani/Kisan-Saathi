@@ -27,15 +27,15 @@ def format_humanized_reply(
     1. Start with a warm greeting like "Namaste farmer friend!" or similar.
     2. Keep it conversational.
     3. Include the advice clearly.
-    4. Provide the exact text first in English, and then add a line break `\n\n` and provide the FULL TRANSLATION in Gujarati.
+    4. Provide the exact text first in GUJARATI, and then add a line break `\n\n` and provide the FULL TRANSLATION in English.
     
     Response format:
-    [English version]
-    
     [Gujarati translation]
+    
+    [English version]
     """
     
-    system_prompt = "You are Kisan Saathi, a helpful farming AI. Answer in English, followed by Gujarati translation."
+    system_prompt = "You are Kisan Saathi, a helpful farming AI. Answer in Gujarati first, followed by English translation."
     
     response = generate_response(prompt, system_prompt).strip()
     return response
