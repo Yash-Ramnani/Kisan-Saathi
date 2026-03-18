@@ -7,6 +7,7 @@ from services.stage2_climate import analyze_climate
 from services.stage3_risk import calculate_risk
 from services.stage4_decision import generate_decision
 from services.stage5_humanize import format_humanized_reply
+from services import memory_service
 
 router = APIRouter()
 
@@ -14,73 +15,109 @@ router = APIRouter()
 async def chat_endpoint(request: ChatRequest):
     if not request.message.strip():
         raise HTTPException(status_code=400, detail="Message cannot be empty")
-        
+
+    session_id = request.session_id or "default"
+
+    # Load session memory
+    known_location = request.current_location or memory_service.get_known_location(session_id)
+    known_crops = request.known_crops or memory_service.get_known_crops(session_id)
+    history = memory_service.get_history(session_id)
+
+    # Record user message
+    memory_service.add_message(session_id, "user", request.message)
+
     try:
         # Stage 1: Normalize
         normalized = normalize_input(
-            request.message, 
-            current_location=request.current_location, 
-            known_crops=request.known_crops
+            user_message=request.message,
+            current_location=known_location,
+            known_crops=known_crops,
+            history=history,
         )
-        
-        # Guard clause for non-agri requests (optional approach)
+
+        # Guard: non-agri query
         if not normalized.is_valid_agri_query:
-            return ChatResponse(
-                reply="Namaste! I am Kisan Saathi, your farming assistant. I can help you with crop advisory, weather, and decisions. Please ask a farming related question!\n\nનમસ્તે! હું કિસાન સાથી છું, તમારો ખેતી સહાયક. કૃપા કરીને ખેતી સંબંધિત પ્રશ્ન પૂછો!",
-                original_message=request.message,
-                location=normalized.location
+            reply = (
+                "નમસ્તે! 🌾 હું કિસાન સાથી છું — તમારો ખેતી AI સહાયક.\n"
+                "કૃપા કરીને ખેતી, પાક, હવામાન અથવા સિંચાઈ સંબંધિત પ્રશ્ન પૂછો.\n\n"
+                "---\n\n"
+                "Namaste! 🌾 I am Kisan Saathi — your farming AI assistant.\n"
+                "Please ask a question related to farming, crops, weather, or irrigation."
             )
-            
-        # Guard clause for missing required info (Location, Crop)
-        missing_entities = []
+            memory_service.add_message(session_id, "assistant", reply)
+            return ChatResponse(reply=reply, original_message=request.message)
+
+        # Guard: missing location + crop
+        missing = []
         if normalized.crop.lower() == "unknown":
-            missing_entities.append("Crop (e.g., Cotton, Wheat)")
+            missing.append("crop (e.g., Cotton, Wheat) | પાક (દા.ત. કપાસ, ઘઉં)")
         if normalized.location.lower() == "unknown":
-            missing_entities.append("Location (e.g., Surat, Pune)")
-            
-        if missing_entities:
-            missing_str = " and ".join(missing_entities)
-            gu_missing = " અને ".join(["પાક (Crop)" if "Crop" in m else "સ્થાન (Location)" for m in missing_entities])
-            
-            reply_msg = f"સચોટ સલાહ માટે, કૃપા કરીને તમારા સંદેશમાં તમારું **{gu_missing}** જણાવો.\n\nTo provide you with the most accurate advice, please specify your **{missing_str}** in your message."
-            return ChatResponse(
-                reply=reply_msg,
-                original_message=request.message
+            missing.append("location (e.g., Surat, Rajkot) | સ્થાન (દા.ત. સુરત, રાજકોટ)")
+
+        if missing:
+            missing_str = " and ".join(missing)
+            reply = (
+                f"📍 સચોટ સલાહ આપવા માટે, કૃપા કરીને તમારું **{missing_str}** જણાવો.\n\n"
+                f"---\n\n"
+                f"📍 To give you accurate advice, please specify your **{missing_str}**."
             )
-            
+            memory_service.add_message(session_id, "assistant", reply)
+            return ChatResponse(reply=reply, original_message=request.message)
+
+        # Save detected location & crop to memory
+        memory_service.save_location(session_id, normalized.location)
+        memory_service.save_crop(session_id, normalized.crop)
+
         # Stage 2: Weather & Climate
         climate = analyze_climate(normalized)
-        
+
         # Stage 3: Risk Scoring
         risks = calculate_risk(normalized, climate)
-        
+
         # Stage 4: Decision Engine
         decisions = generate_decision(normalized, climate, risks)
-        
+
         # Stage 5: Humanize Response
         final_reply = format_humanized_reply(normalized, decisions, climate, risks)
-        
-        # Format payload to frontend
-        weather_str = f"{climate.weather_condition}, {climate.temperature}°C, Rain: {climate.rainfall}mm, Humidity: {climate.humidity}%"
-        
+        memory_service.add_message(session_id, "assistant", final_reply)
+
+        # Determine season
+        from datetime import datetime
+        month = datetime.now().month
+        if month in (6, 7, 8, 9, 10):
+            season = "Kharif (ખરીફ)"
+        elif month in (11, 12, 1, 2, 3):
+            season = "Rabi (રવિ)"
+        else:
+            season = "Zaid (ઝાઈદ)"
+
+        weather_str = (
+            f"{climate.weather_condition} | {climate.temperature}°C "
+            f"(feels {climate.feels_like}°C) | 💧{climate.humidity}% | "
+            f"🌧️{climate.rainfall}mm | 💨{climate.wind_speed}km/h | UV:{climate.uv_index}"
+        )
+
         return ChatResponse(
             reply=final_reply,
             location=climate.location,
             weather_summary=weather_str,
-            risk_scores=risks.model_dump() if risks else None,
+            forecast=climate.forecast,
+            risk_scores=risks.model_dump(),
             decisions=decisions.decisions,
             action_plan=decisions.action_plan,
             reason=decisions.reason,
             original_message=request.message,
-            detected_crop=normalized.crop
+            detected_crop=normalized.crop,
+            season=season,
         )
-        
+
     except Exception as e:
-        print(f"Error in chat pipeline: {e}")
+        print(f"Pipeline error: {e}")
         traceback.print_exc()
-        # Fallback response to avoid crash
-        fallback_msg = "Apologies, I encountered a temporary network issue analyzing your request. Please try again or check your internet connection.\n\nક્ષમા કરશો, સર્વર સમસ્યાને કારણે હું અત્યારે જવાબ આપી શકતો નથી. કૃપા કરીને થોડા સમય પછી ફરી પ્રયાસ કરો."
-        return ChatResponse(
-            reply=fallback_msg,
-            original_message=request.message
+        fallback = (
+            "⚠️ ક્ષમા કરશો, સર્વર સમસ્યા. કૃપા કરીને ફરી પ્રયાસ કરો.\n\n"
+            "---\n\n"
+            "⚠️ Sorry, a server error occurred. Please try again in a moment."
         )
+        memory_service.add_message(session_id, "assistant", fallback)
+        return ChatResponse(reply=fallback, original_message=request.message)

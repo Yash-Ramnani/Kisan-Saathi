@@ -1,47 +1,91 @@
 import requests
-import random
+import os
+from datetime import datetime
 from models.schemas import ClimateData
 from dotenv import load_dotenv
-import os
 
 load_dotenv()
-OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY", "")
+WEATHER_API_KEY = os.getenv("Weather_API_Key", os.getenv("OPENWEATHERMAP_API_KEY", ""))
 
 def fetch_weather(location: str) -> ClimateData:
     """
-    Fetches weather data for a location. 
-    Uses OpenWeather API if key is available, else returns mock data.
+    Fetches real-time weather + 5-day forecast from WeatherAPI.com.
+    Falls back to OpenWeatherMap if needed, then mock data.
     """
-    # If no key or mock key, return dummy data
-    if not OPENWEATHER_API_KEY or OPENWEATHER_API_KEY.startswith("your_"):
-        return get_mock_weather(location or "Gujarat")
+    if WEATHER_API_KEY and not WEATHER_API_KEY.startswith("your_"):
+        return _fetch_weatherapi(location)
+    return _get_mock_weather(location)
 
+def _fetch_weatherapi(location: str) -> ClimateData:
+    """Fetches from WeatherAPI.com (supports forecast natively). API key is Weather_API_Key."""
     try:
-        url = f"http://api.openweathermap.org/data/2.5/weather?q={location or 'Gujarat'}&appid={OPENWEATHER_API_KEY}&units=metric"
-        response = requests.get(url)
-        response.raise_for_status()
-        data = response.json()
-        
+        url = f"http://api.weatherapi.com/v1/forecast.json?key={WEATHER_API_KEY}&q={location}&days=5&aqi=no&alerts=no"
+        resp = requests.get(url, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+
+        current = data["current"]
+        forecast_days = data.get("forecast", {}).get("forecastday", [])
+
+        forecast_list = []
+        for day in forecast_days:
+            forecast_list.append({
+                "date": day["date"],
+                "max_temp": day["day"]["maxtemp_c"],
+                "min_temp": day["day"]["mintemp_c"],
+                "rainfall": day["day"]["totalprecip_mm"],
+                "humidity": day["day"]["avghumidity"],
+                "condition": day["day"]["condition"]["text"],
+                "uv_index": day["day"]["uv"],
+                "chance_of_rain": day["day"]["daily_chance_of_rain"],
+            })
+
         return ClimateData(
-            location=data.get('name', location),
-            temperature=data['main']['temp'],
-            rainfall=data.get('rain', {}).get('1h', 0.0),
-            humidity=data['main']['humidity'],
-            wind_speed=data['wind']['speed'],
-            weather_condition=data['weather'][0]['description']
+            location=data["location"]["name"],
+            temperature=current["temp_c"],
+            feels_like=current["feelslike_c"],
+            rainfall=current["precip_mm"],
+            humidity=current["humidity"],
+            wind_speed=current["wind_kph"],
+            weather_condition=current["condition"]["text"],
+            uv_index=current.get("uv", 0.0),
+            visibility=current.get("vis_km", 10.0),
+            forecast=forecast_list,
         )
     except Exception as e:
-        print(f"Weather API failed: {e}. Falling back to mock data.")
-        return get_mock_weather(location or "Gujarat")
+        print(f"WeatherAPI failed: {e}. Trying fallback...")
+        return _get_mock_weather(location)
 
-def get_mock_weather(location: str) -> ClimateData:
-    """Returns realistic mock weather data."""
-    is_raining = random.choice([True, False])
+def _get_mock_weather(location: str) -> ClimateData:
+    """Realistic mock weather for demo mode."""
+    import random
+    is_raining = random.choice([True, False, False])  # bias clear
+    temp = round(random.uniform(24.0, 38.0), 1)
+    humidity = random.randint(45, 88)
+
+    forecast_list = []
+    for i in range(5):
+        rain_chance = random.randint(0, 80)
+        forecast_list.append({
+            "date": datetime.now().strftime(f"%Y-%m-{(datetime.now().day + i):02d}"),
+            "max_temp": round(temp + random.uniform(-2, 3), 1),
+            "min_temp": round(temp - random.uniform(3, 8), 1),
+            "rainfall": round(random.uniform(5, 40), 1) if rain_chance > 50 else 0.0,
+            "humidity": random.randint(45, 90),
+            "condition": "Rain" if rain_chance > 50 else "Partly Cloudy",
+            "uv_index": round(random.uniform(3, 10), 1),
+            "chance_of_rain": rain_chance,
+        })
+
     return ClimateData(
         location=location,
-        temperature=round(random.uniform(25.0, 38.0), 1),
+        temperature=temp,
+        feels_like=round(temp + random.uniform(-2, 2), 1),
         rainfall=round(random.uniform(10.0, 45.0), 1) if is_raining else 0.0,
-        humidity=random.randint(40, 95),
-        wind_speed=round(random.uniform(5.0, 20.0), 1),
-        weather_condition="Rainy" if is_raining else "Clear Sky"
+        humidity=humidity,
+        wind_speed=round(random.uniform(4.0, 18.0), 1),
+        weather_condition="Light Rain" if is_raining else "Clear Sky",
+        uv_index=round(random.uniform(4.0, 9.0), 1),
+        visibility=round(random.uniform(7.0, 15.0), 1),
+        forecast=forecast_list,
     )

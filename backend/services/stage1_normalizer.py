@@ -2,79 +2,92 @@ import json
 from models.schemas import NormalizedInput
 from services.groq_client import generate_response
 
-def normalize_input(user_message: str, current_location: str = None, known_crops: list = None) -> NormalizedInput:
+def normalize_input(user_message: str, current_location: str = None, known_crops: list = None, history: list = None) -> NormalizedInput:
     """
-    Stage 1: Extacts structured data from the raw user message.
+    Stage 1: Extract structured data from raw user message.
+    Uses conversation history for context-aware extraction.
     """
-    loc_context = current_location if current_location else 'None'
-    crop_context = ', '.join(known_crops) if known_crops else 'None'
+    loc_context = current_location if current_location else 'Not specified'
+    crop_context = ', '.join(known_crops) if known_crops else 'Not specified'
 
-    prompt = f"""
-    You are a structured data extraction engine for an agricultural AI system in India.
+    history_text = ""
+    if history:
+        for h in history[-6:]:  # last 3 turns
+            role = "Farmer" if h["role"] == "user" else "Kisan Saathi"
+            history_text += f"{role}: {h['content']}\n"
 
-    Your job is to convert user input into structured JSON.
+    prompt = f"""You are a structured data extraction engine for an agricultural AI system in India.
 
-    Extract the following JSON keys:
-    - "location": String (city/state)
-    - "crop": String (Standard English crop name)
-    - "intent": String (Brief summary of the farmer's question, e.g., irrigation, spraying, disease, general_advice)
-    - "time_horizon": String (today, tomorrow, next_3_days)
-    - "action": String (e.g., irrigate, spray, harvest, unknown)
-    - "is_valid_agri_query": Boolean (true if related to farming, else false)
+Convert the farmer's message into structured JSON. Use conversation history for context.
 
-    IMPORTANT INSTRUCTIONS:
-    1. The user may enter crop names in Gujarati, Hindi, or English.
-    2. You MUST normalize crop names into standard English crop names.
-       Examples:
-       - "કપાસ" or "kapas" -> "Cotton"
-       - "ગહું" or "gehun" -> "Wheat"
-       - "ચોખા" or "chawal" -> "Rice"
-       - "મકાઈ" or "makka" -> "Maize"
-       - "ડુંગળી" -> "Onion"
-       - "બટાકા" -> "Potato"
-       - "ટમેટા" -> "Tomato"
-    3. If crop is written in Gujarati or Hinglish, convert it correctly.
-    4. Do NOT ask again for crop if it is already present in any language.
-    5. Infer missing values logically using Context below. If missing and not in Context, output 'unknown'.
-    6. Output ONLY valid JSON. No explanation. No markdown formatting if possible.
+Extract:
+- "location": String (city/village/state in India. Use context if not in current message)
+- "crop": String (Standard English crop name. Use context if not in current message)
+- "intent": String (one of: irrigation, spraying, disease, pest, harvest, fertilizer, weather, market_price, general_advice)
+- "time_horizon": String (today, tomorrow, next_3_days, this_week)
+- "action": String (irrigate, spray, harvest, fertilize, monitor, unknown)
+- "is_valid_agri_query": Boolean (true if farming/agriculture/weather related)
+- "pest_concern": String or null (specific pest mentioned e.g. "aphid", "bollworm", "whitefly")
+- "disease_concern": String or null (specific disease mentioned e.g. "blight", "rust", "powdery_mildew")
 
-    Context:
-    - Farmer's known location: {loc_context}
-    - Farmer's known crops: {crop_context}
+RULES:
+1. Normalize crop names from Gujarati/Hindi/Hinglish to standard English.
+   - કપાસ/kapas → Cotton | ઘઉં/gehun → Wheat | ડાંગર/chawal → Rice
+   - મકાઈ/makka → Maize | ડુંગળી → Onion | બટાકા → Potato | ટામેટા → Tomato
+   - મગફળી/moongphali → Groundnut | કેળા → Banana | કેરી/aam → Mango
+   - બાજરી → Pearl Millet | જુવાર → Sorghum | સોયાબીન → Soybean
+2. If location or crop is missing from current message, infer from Context below.
+3. Output ONLY valid raw JSON - no markdown, no explanation.
 
-    User Input:
-    {user_message}
-    """
-    system_prompt = "You are an agricultural input parser. Return strictly valid JSON."
-    
+Context:
+- Farmer's known location: {loc_context}
+- Farmer's known crops: {crop_context}
+
+Conversation History:
+{history_text if history_text else "No history yet."}
+
+Current Message: {user_message}
+"""
+    system_prompt = "You are an agricultural input parser for Indian farmers. Return strictly valid JSON only."
+
     response = generate_response(prompt, system_prompt).strip()
-    
-    # Cleaning any markdown tags if LLM still returned them
-    if response.startswith("```json"):
-        response = response[7:]
-    if response.startswith("```"):
-        response = response[3:]
+
+    # Strip markdown code fences if present
+    for prefix in ["```json", "```"]:
+        if response.startswith(prefix):
+            response = response[len(prefix):]
     if response.endswith("```"):
         response = response[:-3]
 
     try:
         data = json.loads(response.strip())
+        crop = data.get("crop", "unknown")
+        if crop and crop.lower() not in ("unknown", "null", "none", ""):
+            crop = crop.strip().capitalize()
+        else:
+            crop = "unknown"
+
+        location = data.get("location", "unknown")
+        if not location or location.lower() in ("null", "none", "not specified"):
+            location = "unknown"
+
         return NormalizedInput(
-            crop=data.get("crop", "unknown").capitalize() if data.get("crop") and data.get("crop") != "unknown" else "unknown",
-            action=data.get("action", "unknown"),
-            location=data.get("location", "unknown"),
-            intent=data.get("intent", "Unknown intent"),
-            time_horizon=data.get("time_horizon", "today"),
-            is_valid_agri_query=data.get("is_valid_agri_query", True)
+            crop=crop,
+            action=data.get("action") or "unknown",
+            location=location,
+            intent=data.get("intent") or "general_advice",
+            time_horizon=data.get("time_horizon") or "today",
+            is_valid_agri_query=bool(data.get("is_valid_agri_query", True)),
+            pest_concern=data.get("pest_concern") or None,
+            disease_concern=data.get("disease_concern") or None,
         )
     except Exception as e:
-        print(f"Error parsing JSON in Stage 1: {e}")
-        # Fallback mechanism
+        print(f"Stage 1 JSON parse error: {e} | Raw: {response[:200]}")
         return NormalizedInput(
             crop="unknown",
             action="unknown",
-            location="unknown",
-            intent=user_message,
+            location=current_location or "unknown",
+            intent=user_message[:100],
             time_horizon="today",
-            is_valid_agri_query=True
+            is_valid_agri_query=True,
         )
