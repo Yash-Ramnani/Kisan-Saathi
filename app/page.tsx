@@ -1,7 +1,9 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Send, Tractor, ThermometerSun, Leaf, AlertTriangle, Droplet, MapPin, Activity, CheckCircle, Info } from "lucide-react";
+import { Send, Tractor, ThermometerSun, Leaf, AlertTriangle, Droplet, MapPin, Activity, CheckCircle, Info, Mic, Copy, Download } from "lucide-react";
+import Navbar from "./components/Navbar";
+import { Card, Alert, StatCard } from "./components/common";
 
 type Message = {
   id: string;
@@ -29,23 +31,24 @@ const isJsonString = (str: string) => {
       JSON.parse(trimmed);
       return true;
     }
-  } catch (e) {
+  } catch {
     return false;
   }
   return false;
 };
 
-export default function Home() {
+export default function ChatDashboard() {
   const [messages, setMessages] = useState<Message[]>([
     {
-      id: "1",
+      id: "welcome",
       sender: "ai",
-      text: "Namaste! I am Kisan Saathi 🌾, your Smart Farming AI Assistant.\n\nનમસ્તે! હું કિસાન સાથી છું, તમારો સ્માર્ટ ખેતી AI સહાયક.\n\nHow can I help you today? (Ask me about weather, irrigation, risk of disease, etc.)",
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    }
+      text: "नमस्ते! 👋 मैं कि सान साथी हूँ, आपका स्मार्ट खेती सहायक। आप मुझसे फसल सलाह, मौसम, बीमारी और बाजार कीमतों के बारे में पूछ सकते हैं।\n\nHello! 👋 I'm Kisan Saathi, your smart agriculture assistant. Ask me about crops, weather, diseases, and market prices!",
+      timestamp: new Date().toISOString(),
+    },
   ]);
   const [input, setInput] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [language, setLanguage] = useState<"en" | "gu">("en");
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -54,255 +57,281 @@ export default function Home() {
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages, isLoading]);
+  }, [messages]);
 
-  const handleSend = async () => {
+  const handleSendMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
     if (!input.trim()) return;
 
-    const userMsg: Message = {
+    const userMessage: Message = {
       id: Date.now().toString(),
       sender: "user",
       text: input,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      timestamp: new Date().toISOString(),
     };
 
-    setMessages((prev) => [...prev, userMsg]);
+    setMessages((prev) => [...prev, userMessage]);
     setInput("");
-    setIsLoading(true);
+    setLoading(true);
 
     try {
       const response = await fetch("http://localhost:8000/api/chat", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ message: userMsg.text }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: input,
+          language: language === "gu" ? "gu" : "en",
+        }),
       });
 
-      if (!response.ok) {
-        throw new Error("API responded with an error");
+      if (response.ok) {
+        const data = await response.json();
+
+        const aiMessage: Message = {
+          id: Date.now().toString(),
+          sender: "ai",
+          text: data.reply,
+          data: data,
+          timestamp: new Date().toISOString(),
+        };
+
+        setMessages((prev) => [...prev, aiMessage]);
+      } else {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: Date.now().toString(),
+            sender: "ai",
+            text: "I apologize, but I encountered an error processing your request. Please check if the backend server is running.",
+            timestamp: new Date().toISOString(),
+          },
+        ]);
       }
-
-      const data = await response.json();
-      
-      const aiMsg: Message = {
-        id: (Date.now() + 1).toString(),
-        sender: "ai",
-        text: data.reply,
-        data: {
-          location: data.location,
-          weather_summary: data.weather_summary,
-          risk_scores: data.risk_scores,
-          decisions: data.decisions,
-          action_plan: data.action_plan,
-          reason: data.reason
-        },
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      };
-
-      setMessages((prev) => [...prev, aiMsg]);
     } catch (error) {
-      console.error(error);
-      const errMsg: Message = {
-        id: (Date.now() + 1).toString(),
-        sender: "ai",
-        text: "Apologies, there was an error connecting to the Kisan Saathi server. Please ensure the backend is running. \n\nક્ષમા કરશો, કિસાન સાથી સર્વર સાથે જોડાવામાં ભૂલ આવી હતી.",
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      };
-      setMessages((prev) => [...prev, errMsg]);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: Date.now().toString(),
+          sender: "ai",
+          text: "Connection error. Please ensure the backend server is running on http://localhost:8000",
+          timestamp: new Date().toISOString(),
+        },
+      ]);
     } finally {
-      setIsLoading(false);
+      setLoading(false);
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
-      handleSend();
-    }
-  };
+  const renderMessageContent = (message: Message) => {
+    return (
+      <div className="space-y-3">
+        <p className="text-gray-800 whitespace-pre-wrap leading-relaxed">{message.text}</p>
 
-  const getRiskColor = (score: number) => {
-    if (score < 40) return "bg-green-500";
-    if (score < 70) return "bg-yellow-500";
-    return "bg-red-500";
+        {/* Display structured data if available */}
+        {message.data && (
+          <div className="space-y-3 mt-4">
+            {message.data.location && (
+              <div className="flex items-center gap-2 text-sm">
+                <MapPin className="h-4 w-4 text-gray-500" />
+                <strong>Location:</strong> {message.data.location}
+              </div>
+            )}
+
+            {message.data.weather_summary && (
+              <Card title="🌤️ Weather Summary">
+                <p className="text-gray-700">{message.data.weather_summary}</p>
+              </Card>
+            )}
+
+            {message.data.risk_scores && (
+              <Card title="⚠️ Risk Assessment">
+                <div className="grid grid-cols-3 gap-2">
+                  <StatCard
+                    label="Disease Risk"
+                    value={message.data.risk_scores.disease_risk}
+                    unit="%"
+                    color="red"
+                  />
+                  <StatCard
+                    label="Irrigation Need"
+                    value={message.data.risk_scores.irrigation_need}
+                    unit="%"
+                    color="blue"
+                  />
+                  <StatCard
+                    label="Spray Timing"
+                    value={message.data.risk_scores.spray_effectiveness}
+                    unit="%"
+                    color="green"
+                  />
+                </div>
+              </Card>
+            )}
+
+            {message.data.decisions && message.data.decisions.length > 0 && (
+              <Card title="✅ Recommendations">
+                <ul className="space-y-2">
+                  {message.data.decisions.map((decision, idx) => (
+                    <li key={idx} className="flex gap-2 text-sm">
+                      <CheckCircle className="h-4 w-4 text-green-600 flex-shrink-0 mt-0.5" />
+                      <span>{decision}</span>
+                    </li>
+                  ))}
+                </ul>
+              </Card>
+            )}
+
+            {message.data.action_plan && message.data.action_plan.length > 0 && (
+              <Card title="📋 Action Plan">
+                <ol className="space-y-2">
+                  {message.data.action_plan.map((action, idx) => (
+                    <li key={idx} className="flex gap-2 text-sm">
+                      <span className="font-semibold text-green-600">{idx + 1}.</span>
+                      <span>{action}</span>
+                    </li>
+                  ))}
+                </ol>
+              </Card>
+            )}
+          </div>
+        )}
+      </div>
+    );
   };
 
   return (
-    <div className="flex flex-col h-screen bg-gray-100 items-center justify-center p-0 md:p-4 font-sans">
-      <div className="w-full max-w-3xl flex flex-col h-full bg-white md:rounded-2xl shadow-2xl overflow-hidden border border-gray-200">
-        
-        {/* Header */}
-        <header className="bg-emerald-700 text-white p-4 flex items-center shadow-md z-10 shrink-0">
-          <div className="w-10 h-10 rounded-full bg-white flex items-center justify-center text-emerald-700 font-bold text-xl mr-3 shadow-sm border-2 border-emerald-500">
-            <Tractor size={24} />
-          </div>
-          <div className="flex flex-col">
-            <h1 className="text-xl font-bold leading-tight">Kisan Saathi</h1>
-            <span className="text-emerald-100 text-xs flex items-center">
-              <span className="w-2 h-2 rounded-full bg-green-400 mr-1 animate-pulse"></span>
-              AI Agronomist Online
-            </span>
-          </div>
-        </header>
+    <div className="flex flex-col h-screen bg-gray-50">
+      <Navbar />
+
+      <div className="flex gap-4 p-4 max-w-7xl mx-auto w-full">
+        {/* Quick Stats Sidebar */}
+        <div className="hidden lg:w-64 lg:flex flex-col gap-3">
+          <Card title="📍 Location" icon={<MapPin className="h-5 w-5 text-green-600" />}>
+            <input
+              type="text"
+              placeholder="Enter your district"
+              className="w-full px-3 py-2 border rounded-lg text-sm"
+              defaultValue="Gujarat"
+            />
+          </Card>
+
+          <Card title="🌾 Your Crops" icon={<Leaf className="h-5 w-5 text-green-600" />}>
+            <div className="space-y-2 text-sm">
+              <label className="flex items-center gap-2">
+                <input type="checkbox" defaultChecked className="rounded" />
+                Wheat
+              </label>
+              <label className="flex items-center gap-2">
+                <input type="checkbox" defaultChecked className="rounded" />
+                Cotton
+              </label>
+              <label className="flex items-center gap-2">
+                <input type="checkbox" className="rounded" />
+                Rice
+              </label>
+            </div>
+          </Card>
+
+          <Card title="🔔 Quick Actions">
+            <div className="space-y-2">
+              <button className="w-full px-3 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700">
+                🌦️ Weather
+              </button>
+              <button className="w-full px-3 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700">
+                💰 Market Price
+              </button>
+              <button className="w-full px-3 py-2 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700">
+                🐛 Disease Check
+              </button>
+            </div>
+          </Card>
+        </div>
 
         {/* Chat Area */}
-        <main className="flex-1 overflow-y-auto p-4 chat-bg flex flex-col gap-4">
-          <div className="text-center my-2 text-xs text-gray-500 bg-white/60 mx-auto px-3 py-1 rounded-full shadow-sm">
-            End-to-End Encrypted Intelligence
+        <div className="flex-1 flex flex-col bg-white rounded-lg shadow-lg overflow-hidden max-w-4xl mx-auto w-full lg:w-auto">
+          {/* Header */}
+          <div className="bg-gradient-to-r from-green-600 to-green-700 text-white p-4 flex justify-between items-center">
+            <div className="flex items-center gap-2">
+              <Tractor className="h-6 w-6" />
+              <div>
+                <h1 className="font-bold">Kisan Saathi AI Chat</h1>
+                <p className="text-sm text-green-100">Your smart farming assistant</p>
+              </div>
+            </div>
+            <select
+              value={language}
+              onChange={(e) => setLanguage(e.target.value as "en" | "gu")}
+              className="px-3 py-2 bg-green-50 text-green-900 rounded-lg text-sm font-medium"
+            >
+              <option value="en">English</option>
+              <option value="gu">ગુજરાતી</option>
+            </select>
           </div>
 
-          {messages.map((msg) => (
-            <div key={msg.id} className={`flex flex-col max-w-[85%] sm:max-w-[75%] ${msg.sender === "user" ? "self-end" : "self-start"}`}>
-              <div 
-                className={`p-3 rounded-2xl shadow-md relative ${
-                  msg.sender === "user" ? "bubble-user" : "bubble-ai"
-                }`}
+          {/* Messages */}
+          <div className="flex-1 overflow-y-auto p-6 space-y-4">
+            {messages.map((message) => (
+              <div
+                key={message.id}
+                className={`flex ${message.sender === "user" ? "justify-end" : "justify-start"}`}
               >
-                {/* Structured AI Reply */}
-                {msg.sender === "ai" && msg.data && (msg.data.weather_summary || msg.data.decisions) && (
-                  <div className="mb-3 flex flex-col gap-3 bg-gray-50/50 p-3 rounded-xl border border-gray-100">
-                    
-                    {/* Location & Weather */}
-                    {msg.data.location && (
-                      <div className="flex flex-col border-b border-gray-200 pb-2">
-                        <div className="flex items-center text-emerald-700 font-semibold text-sm mb-1">
-                          <MapPin size={14} className="mr-1" />
-                          {msg.data.location}
-                        </div>
-                        {msg.data.weather_summary && (
-                          <div className="flex items-center text-gray-700 text-sm">
-                            <ThermometerSun size={14} className="mr-1 text-orange-500" />
-                            {msg.data.weather_summary}
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Risk Scores */}
-                    {msg.data.risk_scores && (
-                      <div className="flex flex-col gap-1.5 border-b border-gray-200 pb-2">
-                        <div className="flex items-center text-red-600 font-semibold text-sm">
-                          <Activity size={14} className="mr-1" /> Risk Intelligence
-                        </div>
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                          <div className="bg-white p-2 rounded-lg border border-gray-100 shadow-sm flex flex-col items-center">
-                            <Leaf size={14} className="text-gray-500 mb-1" />
-                            <span className="text-xs text-center text-gray-500 mb-1">Disease Risk</span>
-                            <div className="w-full bg-gray-200 rounded-full h-1.5 mb-1">
-                              <div className={`h-1.5 rounded-full ${getRiskColor(msg.data.risk_scores.disease_risk)}`} style={{ width: `${msg.data.risk_scores.disease_risk}%` }}></div>
-                            </div>
-                            <span className="text-xs font-bold text-gray-700">{msg.data.risk_scores.disease_risk}/100</span>
-                          </div>
-                          <div className="bg-white p-2 rounded-lg border border-gray-100 shadow-sm flex flex-col items-center">
-                            <Droplet size={14} className="text-gray-500 mb-1" />
-                            <span className="text-xs text-center text-gray-500 mb-1">Water Need</span>
-                            <div className="w-full bg-gray-200 rounded-full h-1.5 mb-1">
-                              <div className={`h-1.5 rounded-full ${getRiskColor(msg.data.risk_scores.irrigation_need)}`} style={{ width: `${msg.data.risk_scores.irrigation_need}%` }}></div>
-                            </div>
-                            <span className="text-xs font-bold text-gray-700">{msg.data.risk_scores.irrigation_need}/100</span>
-                          </div>
-                          <div className="bg-white p-2 rounded-lg border border-gray-100 shadow-sm flex flex-col items-center">
-                            <AlertTriangle size={14} className="text-gray-500 mb-1" />
-                            <span className="text-xs text-center text-gray-500 mb-1">Spray Eff.</span>
-                            <div className="w-full bg-gray-200 rounded-full h-1.5 mb-1">
-                              <div className={`h-1.5 rounded-full ${msg.data.risk_scores.spray_effectiveness > 50 ? 'bg-green-500' : 'bg-red-500'}`} style={{ width: `${msg.data.risk_scores.spray_effectiveness}%` }}></div>
-                            </div>
-                            <span className="text-xs font-bold text-gray-700">{msg.data.risk_scores.spray_effectiveness}/100</span>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Decisions & Action Plan */}
-                    {(msg.data.decisions || msg.data.action_plan) && (
-                      <div className="flex flex-col gap-2">
-                        {msg.data.decisions && msg.data.decisions.length > 0 && (
-                          <div>
-                            <div className="flex items-center text-blue-700 font-semibold text-sm mb-1">
-                              <Info size={14} className="mr-1" /> AI Decisions
-                            </div>
-                            <ul className="text-sm text-gray-700 pl-5 list-disc space-y-0.5">
-                              {msg.data.decisions.map((d, i) => <li key={i}>{d}</li>)}
-                            </ul>
-                          </div>
-                        )}
-                        {msg.data.action_plan && msg.data.action_plan.length > 0 && (
-                          <div className="mt-1">
-                            <div className="flex items-center text-emerald-700 font-semibold text-sm mb-1">
-                              <CheckCircle size={14} className="mr-1" /> Action Plan
-                            </div>
-                            <ul className="text-sm text-gray-700 pl-5 list-decimal space-y-0.5">
-                              {msg.data.action_plan.map((a, i) => <li key={i}>{a}</li>)}
-                            </ul>
-                          </div>
-                        )}
-                        {msg.data.reason && (
-                           <div className="mt-2 text-xs text-gray-500 italic border-t border-gray-200 pt-2">
-                             <strong>Reason:</strong> {msg.data.reason}
-                           </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Text Message Content */}
-                {!isJsonString(msg.text) && (
-                  <div className="text-sm whitespace-pre-wrap leading-relaxed pb-3">
-                    {msg.text.split('\n').map((line, i) => (
-                      <span key={i}>
-                        {line}
-                        {i !== msg.text.split('\n').length - 1 && <br />}
-                      </span>
-                    ))}
-                  </div>
-                )}
-                
-                <div className="text-[10px] text-gray-400 absolute bottom-1 right-2">
-                  {msg.timestamp}
+                <div
+                  className={`max-w-2xl rounded-lg p-4 ${
+                    message.sender === "user"
+                      ? "bg-green-600 text-white rounded-br-none"
+                      : "bg-gray-100 text-gray-800 rounded-bl-none border border-gray-200"
+                  }`}
+                >
+                  {renderMessageContent(message)}
+                  <p
+                    className={`text-xs mt-2 ${
+                      message.sender === "user" ? "text-green-100" : "text-gray-500"
+                    }`}
+                  >
+                    {new Date(message.timestamp).toLocaleTimeString()}
+                  </p>
                 </div>
               </div>
-            </div>
-          ))}
-
-          {/* Typing Indicator */}
-          {isLoading && (
-            <div className="flex flex-col self-start max-w-[75%]">
-              <div className="p-3 rounded-2xl bubble-ai shadow-md flex items-center gap-1.5 text-sm text-gray-500">
-                <Leaf size={14} className="text-emerald-500 animate-pulse" />
-                <span>Kisan Saathi is thinking</span>
-                <span className="flex">
-                  <span className="w-1.5 h-1.5 bg-gray-400 rounded-full mx-[1px] typing-dot"></span>
-                  <span className="w-1.5 h-1.5 bg-gray-400 rounded-full mx-[1px] typing-dot"></span>
-                  <span className="w-1.5 h-1.5 bg-gray-400 rounded-full mx-[1px] typing-dot"></span>
-                </span>
+            ))}
+            {loading && (
+              <div className="flex gap-2">
+                <div className="bg-gray-100 rounded-lg p-4 border border-gray-200">
+                  <div className="flex gap-2">
+                    <div className="h-3 w-3 bg-gray-400 rounded-full animate-bounce"></div>
+                    <div className="h-3 w-3 bg-gray-400 rounded-full animate-bounce delay-100"></div>
+                    <div className="h-3 w-3 bg-gray-400 rounded-full animate-bounce delay-200"></div>
+                  </div>
+                </div>
               </div>
-            </div>
-          )}
-          <div ref={messagesEndRef} />
-        </main>
-
-        {/* Input Area */}
-        <footer className="bg-gray-50 p-3 flex gap-2 border-t border-gray-200 shrink-0 shadow-[0_-2px_10px_rgba(0,0,0,0.02)] sm:p-4">
-          <div className="flex-1 rounded-full bg-white flex items-center shadow-sm border border-gray-300 overflow-hidden pr-2">
-            <input 
-              type="text" 
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Message..." 
-              className="flex-1 bg-transparent border-none outline-none py-3 px-4 text-sm text-gray-800"
-              disabled={isLoading}
-            />
+            )}
+            <div ref={messagesEndRef} />
           </div>
-          <button 
-            onClick={handleSend}
-            disabled={!input.trim() || isLoading}
-            className="w-12 h-12 rounded-full bg-emerald-600 text-white flex justify-center items-center shadow-md hover:bg-emerald-700 hover:shadow-lg transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <Send size={20} className="ml-1" />
-          </button>
-        </footer>
+
+          {/* Input Area */}
+          <div className="border-t bg-white p-4">
+            <form onSubmit={handleSendMessage} className="flex gap-3">
+              <input
+                type="text"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder="Ask me about crops, weather, markets, or diseases..."
+                className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-600"
+                disabled={loading}
+              />
+              <button
+                type="submit"
+                disabled={loading}
+                className="px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 flex items-center gap-2"
+              >
+                <Send className="h-5 w-5" />
+                <span className="hidden sm:inline">Send</span>
+              </button>
+            </form>
+            <p className="text-xs text-gray-500 mt-2">
+              💡 Try: "What's the weather?", "Disease in my wheat?", "Rice prices today?"
+            </p>
+          </div>
+        </div>
       </div>
     </div>
   );
