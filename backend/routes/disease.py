@@ -3,6 +3,7 @@
 from fastapi import APIRouter, HTTPException, File, Form, UploadFile
 from models.schemas import DiseaseDetectionRequest, DiseaseDetectionResult
 from services.disease_detector import detect_disease, get_treatment_cost_estimate, get_resistant_varieties
+from services.groq_client import GROQ_VISION_MODEL
 import base64
 
 router = APIRouter()
@@ -26,8 +27,19 @@ async def upload_disease_image(
     """Upload and analyze crop image for diseases."""
     
     try:
+        content_type = (file.content_type or "").lower()
+        allowed_types = {"image/jpeg", "image/jpg", "image/png", "image/webp"}
+        if content_type not in allowed_types:
+            raise HTTPException(status_code=400, detail="Unsupported file type. Use JPG, PNG, or WEBP.")
+
         # Read file
         contents = await file.read()
+        max_size_bytes = 8 * 1024 * 1024
+        if len(contents) > max_size_bytes:
+            raise HTTPException(status_code=400, detail="Image too large. Max allowed size is 8 MB.")
+
+        if not contents:
+            raise HTTPException(status_code=400, detail="Uploaded file is empty.")
         
         # Convert to base64
         image_data = base64.b64encode(contents).decode('utf-8')
@@ -36,13 +48,14 @@ async def upload_disease_image(
         result = detect_disease(
             image_data=image_data,
             crop=crop,
-            image_mime_type=file.content_type or "image/jpeg",
+            image_mime_type=content_type or "image/jpeg",
         )
         
         return {
             "farmer_id": farmer_id,
             "crop": crop,
             "filename": file.filename,
+            "model_used": GROQ_VISION_MODEL,
             "disease_analysis": result
         }
     except Exception as e:

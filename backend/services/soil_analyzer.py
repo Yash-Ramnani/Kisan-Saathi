@@ -5,7 +5,7 @@ Soil Analysis Service - Uses image processing and LLM to analyze soil conditions
 import re
 from typing import Optional
 from models.schemas import SoilAnalysisResult
-from services.groq_client import generate_vision_response
+from services.groq_client import generate_response, generate_vision_response
 
 
 CROP_RECOMMENDATIONS = {
@@ -93,6 +93,23 @@ def _extract_first_field(text: str, keys: list[str]) -> str:
     return ""
 
 
+def _translate_report(text: str, target_language: str) -> str:
+    if not text:
+        return ""
+
+    language_label = "Gujarati" if target_language == "gu" else "Hindi"
+    prompt = (
+        f"Translate the following agricultural report to {language_label}. "
+        "Keep meaning exact, use farmer-friendly language, and return only translated text.\n\n"
+        f"Text:\n{text}"
+    )
+    translated = generate_response(
+        prompt=prompt,
+        system_prompt="You are an expert agricultural translator for Indian farmers.",
+    )
+    return translated.strip()
+
+
 def analyze_soil_image(
     image_data: str,
     location: str = "Unknown",
@@ -175,7 +192,17 @@ Important:
     gujarati_report = _extract_block(response, "GUJARATI_REPORT", "HINDI_REPORT")
     hindi_report = _extract_block(response, "HINDI_REPORT")
 
-    if not english_report or not gujarati_report or not hindi_report:
+    # Keep core analysis strict, but generate missing language reports from English.
+    if not english_report:
+        raise ValueError("Vision response missing English report.")
+
+    if not gujarati_report:
+        gujarati_report = _translate_report(english_report, "gu")
+
+    if not hindi_report:
+        hindi_report = _translate_report(english_report, "hi")
+
+    if not gujarati_report or not hindi_report:
         raise ValueError("Vision response missing one or more language reports.")
 
     detailed_report = (

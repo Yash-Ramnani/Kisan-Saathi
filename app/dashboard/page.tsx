@@ -58,6 +58,13 @@ const modules = [
     icon: LineChart,
     color: "from-indigo-600 to-blue-600",
   },
+  {
+    title: "Govt Schemes",
+    subtitle: "Live farmer schemes with official links",
+    href: "/schemes",
+    icon: Wheat,
+    color: "from-teal-600 to-cyan-600",
+  },
 ];
 
 const quickStats = [

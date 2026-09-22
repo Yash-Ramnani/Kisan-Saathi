@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from routes import chat, soil, weather, crops, disease, market, whatsapp
+from routes import chat, soil, weather, crops, disease, market, whatsapp, schemes
 
 app = FastAPI(
     title="Kisan Saathi - Smart Farming Intelligence System",
@@ -30,6 +30,7 @@ def read_root():
             "crops": "/api/crops",
             "disease": "/api/disease",
             "market": "/api/market",
+            "schemes": "/api/schemes/current",
             "whatsapp": "/api/whatsapp"
         }
     }
@@ -41,6 +42,7 @@ app.include_router(weather.router, prefix="/api", tags=["Weather"])
 app.include_router(crops.router, prefix="/api", tags=["Crop Advisory"])
 app.include_router(disease.router, prefix="/api", tags=["Disease Detection"])
 app.include_router(market.router, prefix="/api", tags=["Market Insights"])
+app.include_router(schemes.router, prefix="/api", tags=["Government Schemes"])
 app.include_router(whatsapp.router, prefix="/api", tags=["WhatsApp Integration"])
 
 if __name__ == "__main__":

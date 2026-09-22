@@ -22,6 +22,7 @@ export default function DiseasePage() {
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [result, setResult] = useState<DiseaseResult | null>(null);
+  const [modelUsed, setModelUsed] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -41,6 +42,7 @@ export default function DiseasePage() {
       setPreview(URL.createObjectURL(selectedFile));
       setError(null);
       setResult(null);
+      setModelUsed(null);
     }
   };
 
@@ -67,6 +69,7 @@ export default function DiseasePage() {
 
       const data = await res.json();
       setResult(data.disease_analysis);
+      setModelUsed(data.model_used || null);
     } catch (error) {
       setError(error instanceof Error ? error.message : "Unexpected error during disease analysis.");
     } finally {
@@ -143,7 +146,7 @@ export default function DiseasePage() {
                     <div className="space-y-3">
                       <Upload className="h-12 w-12 text-rose-500 mx-auto" />
                       <p className="text-gray-700 font-medium">Drop crop image or click to upload</p>
-                      <p className="text-sm text-gray-500">PNG, JPG up to 5MB</p>
+                      <p className="text-sm text-gray-500">PNG, JPG, WEBP up to 8 MB</p>
                     </div>
                   )}
                 </label>
@@ -204,6 +207,14 @@ export default function DiseasePage() {
         {/* Results Section */}
         {result && (
           <div className="mt-8 space-y-6">
+            {modelUsed && (
+              <Alert
+                type="info"
+                title="Vision Model"
+                message={`Image analyzed with Groq model: ${modelUsed}`}
+              />
+            )}
+
             <Card className="bg-gradient-to-r from-rose-600 to-red-700 text-white border-0 shadow-xl">
               <div className="space-y-4">
                 <div>

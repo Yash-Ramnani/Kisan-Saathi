@@ -24,6 +24,7 @@ export default function SoilPage() {
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [result, setResult] = useState<SoilAnalysis | null>(null);
+  const [modelUsed, setModelUsed] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -43,6 +44,7 @@ export default function SoilPage() {
       setPreview(URL.createObjectURL(selectedFile));
       setError(null);
       setResult(null);
+      setModelUsed(null);
     }
   };
 
@@ -69,6 +71,7 @@ export default function SoilPage() {
 
       const data = await res.json();
       setResult(data.analysis);
+      setModelUsed(data.model_used || null);
     } catch (error) {
       setError(error instanceof Error ? error.message : "Unexpected error during soil analysis.");
     } finally {
@@ -132,7 +135,7 @@ export default function SoilPage() {
                     <div className="space-y-3">
                       <Upload className="mx-auto h-12 w-12 text-amber-500" />
                       <p className="font-medium text-gray-800">Drop soil photo or click to upload</p>
-                      <p className="text-sm text-gray-500">Best result: clear daylight photo from 6-inch depth</p>
+                      <p className="text-sm text-gray-500">Best result: clear daylight photo from 6-inch depth (max 8 MB)</p>
                     </div>
                   )}
                 </label>
@@ -193,6 +196,14 @@ export default function SoilPage() {
 
         {result && (
           <div className="mt-8 space-y-6">
+            {modelUsed && (
+              <Alert
+                type="info"
+                title="Vision Model"
+                message={`Image analyzed with Groq model: ${modelUsed}`}
+              />
+            )}
+
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <StatCard
                 label="Soil Type"

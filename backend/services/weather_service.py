@@ -6,60 +6,147 @@ import os
 from datetime import datetime, timedelta
 
 load_dotenv()
-OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY", "")
+WEATHERAPI_API_KEY = os.getenv("WEATHERAPI_API_KEY", "").strip()
+OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY", "").strip()  # legacy fallback
+
+
+def _is_placeholder(value: str) -> bool:
+    return not value or value.startswith("your_")
+
+
+def _fetch_weather_weatherapi(location: str, api_key: str) -> ClimateData:
+    url = "https://api.weatherapi.com/v1/current.json"
+    params = {
+        "key": api_key,
+        "q": location or "Gujarat",
+        "aqi": "no",
+    }
+    response = requests.get(url, params=params, timeout=15)
+    response.raise_for_status()
+    data = response.json()
+
+    current = data.get("current", {})
+    loc = data.get("location", {})
+    condition = current.get("condition", {})
+
+    return ClimateData(
+        location=loc.get("name", location),
+        temperature=current.get("temp_c", 0.0),
+        rainfall=current.get("precip_mm", 0.0),
+        humidity=current.get("humidity", 0),
+        wind_speed=current.get("wind_kph", 0.0),
+        weather_condition=condition.get("text", "Unknown"),
+        feels_like=current.get("feelslike_c", current.get("temp_c", 0.0)),
+        visibility=current.get("vis_km", 10.0),
+        uv_index=current.get("uv", None),
+    )
+
+
+def _fetch_forecast_weatherapi(location: str, api_key: str) -> dict:
+    url = "https://api.weatherapi.com/v1/forecast.json"
+    params = {
+        "key": api_key,
+        "q": location or "Gujarat",
+        "days": 5,
+        "aqi": "no",
+        "alerts": "no",
+    }
+    response = requests.get(url, params=params, timeout=15)
+    response.raise_for_status()
+    data = response.json()
+
+    location_name = data.get("location", {}).get("name", location)
+    forecast_days = data.get("forecast", {}).get("forecastday", [])
+
+    forecast = []
+    for item in forecast_days:
+        day = item.get("day", {})
+        forecast.append({
+            "date": item.get("date", ""),
+            "temp_max": day.get("maxtemp_c", 0.0),
+            "temp_min": day.get("mintemp_c", 0.0),
+            "description": day.get("condition", {}).get("text", "Unknown"),
+            "rainfall_prob": float(day.get("daily_chance_of_rain", 0.0)),
+            "humidity": day.get("avghumidity", 0),
+        })
+
+    return {"location": location_name, "forecast": forecast[:5]}
+
+
+def _fetch_weather_openweather(location: str, api_key: str) -> ClimateData:
+    url = "https://api.openweathermap.org/data/2.5/weather"
+    params = {
+        "q": location or "Gujarat",
+        "appid": api_key,
+        "units": "metric",
+    }
+    response = requests.get(url, params=params, timeout=15)
+    response.raise_for_status()
+    data = response.json()
+
+    return ClimateData(
+        location=data.get("name", location),
+        temperature=data["main"]["temp"],
+        rainfall=data.get("rain", {}).get("1h", 0.0),
+        humidity=data["main"]["humidity"],
+        wind_speed=round(float(data["wind"].get("speed", 0.0)) * 3.6, 2),
+        weather_condition=data["weather"][0]["description"],
+        feels_like=data["main"]["feels_like"],
+        visibility=data.get("visibility", 10000) / 1000,
+        uv_index=None,
+    )
+
+
+def _fetch_forecast_openweather(location: str, api_key: str) -> dict:
+    url = "https://api.openweathermap.org/data/2.5/forecast"
+    params = {
+        "q": location or "Gujarat",
+        "appid": api_key,
+        "units": "metric",
+    }
+    response = requests.get(url, params=params, timeout=15)
+    response.raise_for_status()
+    data = response.json()
+
+    forecast = []
+    for item in data["list"][::8]:
+        forecast.append({
+            "date": item["dt_txt"],
+            "temp_max": item["main"]["temp_max"],
+            "temp_min": item["main"]["temp_min"],
+            "description": item["weather"][0]["description"],
+            "rainfall_prob": item.get("pop", 0) * 100,
+            "humidity": item["main"]["humidity"],
+        })
+    return {"location": location, "forecast": forecast[:5]}
 
 def fetch_weather(location: str) -> ClimateData:
     """
-    Fetches weather data for a location. 
-    Uses OpenWeather API if key is available, else returns mock data.
+    Fetches weather data for a location.
+    Prefers WeatherAPI.com; falls back to OpenWeather legacy key; then mock data.
     """
-    # If no key or mock key, return dummy data
-    if not OPENWEATHER_API_KEY or OPENWEATHER_API_KEY.startswith("your_"):
-        return get_mock_weather(location or "Gujarat")
-
     try:
-        url = f"http://api.openweathermap.org/data/2.5/weather?q={location or 'Gujarat'}&appid={OPENWEATHER_API_KEY}&units=metric"
-        response = requests.get(url)
-        response.raise_for_status()
-        data = response.json()
-        
-        return ClimateData(
-            location=data.get('name', location),
-            temperature=data['main']['temp'],
-            rainfall=data.get('rain', {}).get('1h', 0.0),
-            humidity=data['main']['humidity'],
-            wind_speed=data['wind']['speed'],
-            weather_condition=data['weather'][0]['description'],
-            feels_like=data['main']['feels_like'],
-            visibility=data.get('visibility', 10000) / 1000,  # Convert to km
-            uv_index=None
-        )
+        if not _is_placeholder(WEATHERAPI_API_KEY):
+            return _fetch_weather_weatherapi(location, WEATHERAPI_API_KEY)
+
+        if not _is_placeholder(OPENWEATHER_API_KEY):
+            return _fetch_weather_openweather(location, OPENWEATHER_API_KEY)
+
+        return get_mock_weather(location or "Gujarat")
     except Exception as e:
         print(f"Weather API failed: {e}. Falling back to mock data.")
         return get_mock_weather(location or "Gujarat")
 
 def get_forecast_weekly(location: str) -> dict:
-    """Fetch 5-day forecast."""
-    if not OPENWEATHER_API_KEY or OPENWEATHER_API_KEY.startswith("your_"):
-        return get_mock_forecast(location or "Gujarat")
-    
+    """Fetch 5-day forecast using WeatherAPI or legacy OpenWeather."""
     try:
-        url = f"http://api.openweathermap.org/data/2.5/forecast?q={location or 'Gujarat'}&appid={OPENWEATHER_API_KEY}&units=metric"
-        response = requests.get(url)
-        response.raise_for_status()
-        data = response.json()
-        
-        forecast = []
-        for item in data['list'][::8]:  # Every 24 hours
-            forecast.append({
-                "date": item['dt_txt'],
-                "temp_max": item['main']['temp_max'],
-                "temp_min": item['main']['temp_min'],
-                "description": item['weather'][0]['description'],
-                "rainfall_prob": item.get('pop', 0) * 100,
-                "humidity": item['main']['humidity']
-            })
-        return {"location": location, "forecast": forecast[:5]}
+        if not _is_placeholder(WEATHERAPI_API_KEY):
+            return _fetch_forecast_weatherapi(location, WEATHERAPI_API_KEY)
+
+        if not _is_placeholder(OPENWEATHER_API_KEY):
+            return _fetch_forecast_openweather(location, OPENWEATHER_API_KEY)
+
+        return get_mock_forecast(location or "Gujarat")
     except Exception as e:
         print(f"Forecast API failed: {e}")
         return get_mock_forecast(location or "Gujarat")

@@ -5,7 +5,18 @@ from groq import Groq
 load_dotenv()
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "your_mock_key_here")
-GROQ_VISION_MODEL = os.getenv("GROQ_VISION_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct")
+_vision_model_override = os.getenv("GROQ_VISION_MODEL", "").strip()
+GROQ_VISION_MODELS = [
+    model
+    for model in [
+        _vision_model_override,
+        "openai/gpt-oss-120b",
+        "qwen/qwen3.8-27b",
+        "qwen/qwen3.6-27b",
+    ]
+    if model
+]
+GROQ_VISION_MODEL = GROQ_VISION_MODELS[0]
 
 
 def get_groq_client():
@@ -55,22 +66,9 @@ def generate_vision_response(
     if normalized_mime_type not in allowed_mime_types:
         normalized_mime_type = "image/jpeg"
 
-    model_candidates = [
-        GROQ_VISION_MODEL,
-        "meta-llama/llama-4-scout-17b-16e-instruct",
-        "meta-llama/llama-4-maverick-17b-128e-instruct",
-    ]
-
-    # De-duplicate model names while preserving order.
-    seen = set()
-    unique_models = []
-    for model in model_candidates:
-        if model and model not in seen:
-            unique_models.append(model)
-            seen.add(model)
-
     last_error = None
-    for model_name in unique_models:
+
+    for model_name in GROQ_VISION_MODELS:
         try:
             chat_completion = client.chat.completions.create(
                 messages=[
@@ -90,15 +88,14 @@ def generate_vision_response(
                 ],
                 model=model_name,
                 temperature=0.2,
-                max_tokens=900,
+                max_tokens=1200,
             )
             return chat_completion.choices[0].message.content
         except Exception as e:
             last_error = e
             print(f"Groq Vision API Error with model '{model_name}': {e}")
 
-    # Let caller choose fallback strategy (heuristic, error response, etc.).
-    raise RuntimeError(f"Groq vision models failed: {last_error}")
+    raise RuntimeError(f"Groq vision model failed ({', '.join(GROQ_VISION_MODELS)}): {last_error}")
 
 
 def _mock_llm_response(prompt: str, system_prompt: str = "") -> str:

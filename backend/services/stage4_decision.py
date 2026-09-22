@@ -51,18 +51,49 @@ def generate_decision(
         )
     except Exception as e:
         print(f"Error parsing JSON in Stage 4: {e}")
-        # Rule-based fallback if LLM fails
+        # Intent-aware rule-based fallback if LLM fails.
+        query = f"{normalized_input.intent} {normalized_input.action}".lower()
+
+        if any(k in query for k in ["price", "market", "mandi", "sell", "rate"]):
+            return DecisionData(
+                decisions=[
+                    "Track mandi rates for the next 2-3 days before selling.",
+                    "Prefer selling in nearby high-demand markets if transport is feasible.",
+                ],
+                action_plan=[
+                    "Compare at least 2 mandi prices.",
+                    "Sell in batches instead of full stock at once.",
+                    "Check moisture/quality before dispatch for better price.",
+                ],
+                reason="Market intent detected; fallback provided market-oriented advisory.",
+            )
+
+        if any(k in query for k in ["disease", "pest", "spot", "rust", "blight", "spray"]):
+            decisions = [
+                "Disease risk indicates preventive action is needed.",
+                "Spray timing should avoid rain and high wind windows.",
+            ]
+            return DecisionData(
+                decisions=decisions,
+                action_plan=[
+                    "Inspect 20 random plants in the field.",
+                    "Remove visibly infected leaves/plants.",
+                    "Spray only when wind is low and no rain is expected.",
+                ],
+                reason="Disease intent detected; fallback provided protection-oriented plan.",
+            )
+
         decisions = []
         if risk_scores.irrigation_need > 60:
             decisions.append("High priority to irrigate the crop today.")
         else:
             decisions.append("Irrigation is not urgently required today.")
-            
+
         if risk_scores.disease_risk > 50:
             decisions.append("High disease risk detected. Monitor for fungal infections.")
-            
+
         return DecisionData(
             decisions=decisions,
             action_plan=["Check soil moisture manually.", "Stay updated on weather."],
-            reason="Fallback rule-based decision due to processing failure."
+            reason="Weather/irrigation fallback decision due to processing failure.",
         )

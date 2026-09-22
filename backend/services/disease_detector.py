@@ -4,7 +4,7 @@ Disease Detection Service - Analyzes crop images for diseases
 
 import re
 from models.schemas import DiseaseDetectionResult
-from services.groq_client import generate_vision_response
+from services.groq_client import generate_response, generate_vision_response
 
 DISEASE_TREATMENT_DB = {
     "rust": {
@@ -101,20 +101,20 @@ DISEASE_TREATMENT_DB = {
 
 
 def _extract_field(text: str, key: str) -> str:
-    pattern = rf"^{re.escape(key)}\s*:\s*(.+)$"
+    pattern = rf"^\s*(?:[-*]\s*)?(?:\*\*)?{re.escape(key)}(?:\*\*)?\s*:\s*(.+)$"
     match = re.search(pattern, text, flags=re.IGNORECASE | re.MULTILINE)
     return match.group(1).strip() if match else ""
 
 
 def _extract_block(text: str, start_key: str, end_key: str = "") -> str:
-    start_pattern = rf"{re.escape(start_key)}\s*:"
+    start_pattern = rf"\b(?:\*\*)?{re.escape(start_key)}(?:\*\*)?\s*:"
     start_match = re.search(start_pattern, text, flags=re.IGNORECASE)
     if not start_match:
         return ""
 
     start_index = start_match.end()
     if end_key:
-        end_pattern = rf"\n\s*{re.escape(end_key)}\s*:"
+        end_pattern = rf"\n\s*(?:[-*]\s*)?(?:\*\*)?{re.escape(end_key)}(?:\*\*)?\s*:"
         end_match = re.search(end_pattern, text[start_index:], flags=re.IGNORECASE)
         end_index = start_index + end_match.start() if end_match else len(text)
     else:
@@ -159,6 +159,31 @@ def _normalize_severity(value: str) -> str:
     return "healthy"
 
 
+def _extract_first_field(text: str, keys: list[str]) -> str:
+    for key in keys:
+        value = _extract_field(text, key)
+        if value:
+            return value
+    return ""
+
+
+def _translate_report(text: str, target_language: str) -> str:
+    if not text:
+        return ""
+
+    language_label = "Gujarati" if target_language == "gu" else "Hindi"
+    prompt = (
+        f"Translate the following agricultural disease report to {language_label}. "
+        "Keep meaning exact, use farmer-friendly language, and return only translated text.\n\n"
+        f"Text:\n{text}"
+    )
+    translated = generate_response(
+        prompt=prompt,
+        system_prompt="You are an expert agricultural translator for Indian farmers.",
+    )
+    return translated.strip()
+
+
 def detect_disease(
     image_data: str,
     crop: str,
@@ -194,10 +219,10 @@ Important:
         system_prompt="You are an expert in crop disease identification for Indian farms.",
     )
 
-    disease_raw = _extract_field(response, "DISEASE")
-    confidence_raw = _extract_field(response, "CONFIDENCE")
-    severity_raw = _extract_field(response, "SEVERITY")
-    action_raw = _extract_field(response, "ACTION")
+    disease_raw = _extract_first_field(response, ["DISEASE", "DISEASE_NAME", "DISEASE NAME"])
+    confidence_raw = _extract_first_field(response, ["CONFIDENCE", "CONFIDENCE_SCORE", "CONFIDENCE SCORE"])
+    severity_raw = _extract_first_field(response, ["SEVERITY", "SEVERITY_LEVEL", "SEVERITY LEVEL"])
+    action_raw = _extract_first_field(response, ["ACTION", "ACTION_REQUIRED", "ACTION REQUIRED"])
 
     if not disease_raw or not confidence_raw or not severity_raw or not action_raw:
         raise ValueError("Vision response missing required disease fields.")
@@ -217,7 +242,16 @@ Important:
     gujarati_report = _extract_block(response, "GUJARATI_REPORT", "HINDI_REPORT")
     hindi_report = _extract_block(response, "HINDI_REPORT")
 
-    if not english_report or not gujarati_report or not hindi_report:
+    if not english_report:
+        raise ValueError("Vision response missing English report.")
+
+    if not gujarati_report:
+        gujarati_report = _translate_report(english_report, "gu")
+
+    if not hindi_report:
+        hindi_report = _translate_report(english_report, "hi")
+
+    if not gujarati_report or not hindi_report:
         raise ValueError("Vision response missing one or more language reports.")
 
     disease_info = DISEASE_TREATMENT_DB.get(disease_name, DISEASE_TREATMENT_DB["healthy"])

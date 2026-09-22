@@ -1,6 +1,28 @@
 from models.schemas import NormalizedInput, DecisionData, ClimateData, RiskScores
 from services.groq_client import generate_response
 
+
+def _fallback_humanized_reply(decision_data: DecisionData) -> str:
+    english_lines = ["Namaste farmer friend!", "Here is your farm advice:"]
+    for idx, item in enumerate(decision_data.decisions[:3], start=1):
+        english_lines.append(f"{idx}. {item}")
+
+    english_lines.append("Action plan:")
+    for idx, item in enumerate(decision_data.action_plan[:3], start=1):
+        english_lines.append(f"{idx}. {item}")
+
+    gujarati_lines = [
+        "નમસ્તે ખેડૂત મિત્ર!",
+        "આ રહી તમારી ખેતી સલાહ:",
+    ]
+    for idx, item in enumerate(decision_data.decisions[:3], start=1):
+        gujarati_lines.append(f"{idx}. {item}")
+    gujarati_lines.append("કાર્ય યોજના:")
+    for idx, item in enumerate(decision_data.action_plan[:3], start=1):
+        gujarati_lines.append(f"{idx}. {item}")
+
+    return "\n".join(english_lines) + "\n\n" + "\n".join(gujarati_lines)
+
 def format_humanized_reply(
     normalized_input: NormalizedInput, 
     decision_data: DecisionData,
@@ -36,7 +58,17 @@ def format_humanized_reply(
     """
     
     system_prompt = "You are Kisan Saathi, a helpful farming AI. Answer in English, followed by Gujarati translation."
-    
+
     response = generate_response(prompt, system_prompt).strip()
+
+    # If output is empty, malformed, or mock-like, return deterministic bilingual content.
+    if (
+        not response
+        or response.startswith('{"status"')
+        or len(response) < 30
+        or "\n\n" not in response
+    ):
+        return _fallback_humanized_reply(decision_data)
+
     return response
 

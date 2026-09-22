@@ -1,7 +1,21 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Send, Tractor, ThermometerSun, Leaf, AlertTriangle, Droplet, MapPin, Activity, CheckCircle, Info, Mic, Copy, Download } from "lucide-react";
+import Link from "next/link";
+import {
+  Send,
+  Tractor,
+  Leaf,
+  MapPin,
+  CheckCircle,
+  Sparkles,
+  Bot,
+  UserRound,
+  CloudSun,
+  LineChart,
+  Bug,
+  Landmark,
+} from "lucide-react";
 import Navbar from "./components/Navbar";
 import { Card, Alert, StatCard } from "./components/common";
 
@@ -24,18 +38,12 @@ type Message = {
   timestamp: string;
 };
 
-const isJsonString = (str: string) => {
-  try {
-    const trimmed = str.trim();
-    if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
-      JSON.parse(trimmed);
-      return true;
-    }
-  } catch {
-    return false;
-  }
-  return false;
-};
+const quickPrompts = [
+  "Best irrigation plan for cotton this week",
+  "Show mandi trend for wheat today",
+  "Leaf spots in rice, what should I spray?",
+  "Government schemes for small farmers in Gujarat",
+];
 
 export default function ChatDashboard() {
   const [messages, setMessages] = useState<Message[]>([
@@ -59,14 +67,13 @@ export default function ChatDashboard() {
     scrollToBottom();
   }, [messages]);
 
-  const handleSendMessage = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!input.trim()) return;
+  const sendMessage = async (messageText: string) => {
+    if (!messageText.trim()) return;
 
     const userMessage: Message = {
       id: Date.now().toString(),
       sender: "user",
-      text: input,
+      text: messageText,
       timestamp: new Date().toISOString(),
     };
 
@@ -79,7 +86,7 @@ export default function ChatDashboard() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          message: input,
+          message: messageText,
           language: language === "gu" ? "gu" : "en",
         }),
       });
@@ -122,24 +129,37 @@ export default function ChatDashboard() {
     }
   };
 
+  const handleSendMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await sendMessage(input);
+  };
+
+  const submitPrompt = async (prompt: string) => {
+    setInput(prompt);
+    await sendMessage(prompt);
+  };
+
   const renderMessageContent = (message: Message) => {
     return (
       <div className="space-y-3">
-        <p className="text-gray-800 whitespace-pre-wrap leading-relaxed">{message.text}</p>
+        <p className={`whitespace-pre-wrap leading-relaxed ${message.sender === "user" ? "text-white" : "text-gray-800"}`}>
+          {message.text}
+        </p>
 
         {/* Display structured data if available */}
-        {message.data && (
+        {message.data && message.sender === "ai" && (
           <div className="space-y-3 mt-4">
             {message.data.location && (
-              <div className="flex items-center gap-2 text-sm">
-                <MapPin className="h-4 w-4 text-gray-500" />
-                <strong>Location:</strong> {message.data.location}
+              <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+                <MapPin className="h-4 w-4" />
+                <strong>Location:</strong>
+                <span>{message.data.location}</span>
               </div>
             )}
 
             {message.data.weather_summary && (
-              <Card title="🌤️ Weather Summary">
-                <p className="text-gray-700">{message.data.weather_summary}</p>
+              <Card title="Weather Summary">
+                <p className="text-gray-700 text-sm">{message.data.weather_summary}</p>
               </Card>
             )}
 
@@ -169,7 +189,7 @@ export default function ChatDashboard() {
             )}
 
             {message.data.decisions && message.data.decisions.length > 0 && (
-              <Card title="✅ Recommendations">
+              <Card title="Recommendations">
                 <ul className="space-y-2">
                   {message.data.decisions.map((decision, idx) => (
                     <li key={idx} className="flex gap-2 text-sm">
@@ -182,7 +202,7 @@ export default function ChatDashboard() {
             )}
 
             {message.data.action_plan && message.data.action_plan.length > 0 && (
-              <Card title="📋 Action Plan">
+              <Card title="Action Plan">
                 <ol className="space-y-2">
                   {message.data.action_plan.map((action, idx) => (
                     <li key={idx} className="flex gap-2 text-sm">
@@ -200,86 +220,101 @@ export default function ChatDashboard() {
   };
 
   return (
-    <div className="flex flex-col h-screen bg-gray-50">
+    <div className="h-screen overflow-hidden bg-[radial-gradient(circle_at_0%_0%,_#dcfce7_0%,_#ecfeff_35%,_#f8fafc_100%)]">
       <Navbar />
 
-      <div className="flex gap-4 p-4 max-w-7xl mx-auto w-full">
-        {/* Quick Stats Sidebar */}
-        <div className="hidden lg:w-64 lg:flex flex-col gap-3">
-          <Card title="📍 Location" icon={<MapPin className="h-5 w-5 text-green-600" />}>
-            <input
-              type="text"
-              placeholder="Enter your district"
-              className="w-full px-3 py-2 border rounded-lg text-sm"
-              defaultValue="Gujarat"
-            />
-          </Card>
-
-          <Card title="🌾 Your Crops" icon={<Leaf className="h-5 w-5 text-green-600" />}>
-            <div className="space-y-2 text-sm">
-              <label className="flex items-center gap-2">
-                <input type="checkbox" defaultChecked className="rounded" />
-                Wheat
-              </label>
-              <label className="flex items-center gap-2">
-                <input type="checkbox" defaultChecked className="rounded" />
-                Cotton
-              </label>
-              <label className="flex items-center gap-2">
-                <input type="checkbox" className="rounded" />
-                Rice
-              </label>
+      <div className="mx-auto grid h-[calc(100vh-64px)] w-full max-w-7xl grid-cols-1 gap-4 px-4 py-3 lg:grid-cols-[280px_1fr]">
+        <div className="hidden lg:flex lg:flex-col lg:gap-4 lg:overflow-y-auto lg:pr-1">
+          <Card className="border-0 shadow-xl bg-gradient-to-br from-emerald-700 via-green-700 to-teal-700 text-white">
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 text-emerald-100">
+                <Sparkles className="h-4 w-4" />
+                <span className="text-xs uppercase tracking-widest">AI Command Panel</span>
+              </div>
+              <h2 className="text-xl font-bold">Kisan Saathi</h2>
+              <p className="text-sm text-emerald-100">
+                Ask about crops, weather, disease, market, and farmer schemes with live links.
+              </p>
             </div>
           </Card>
 
-          <Card title="🔔 Quick Actions">
+          <Card title="Quick Navigation" icon={<Leaf className="h-5 w-5 text-emerald-700" />} className="border-0 shadow-lg">
             <div className="space-y-2">
-              <button className="w-full px-3 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700">
-                🌦️ Weather
-              </button>
-              <button className="w-full px-3 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700">
-                💰 Market Price
-              </button>
-              <button className="w-full px-3 py-2 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700">
-                🐛 Disease Check
-              </button>
+              <Link href="/weather" className="flex items-center gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-medium text-sky-800 hover:bg-sky-100">
+                <CloudSun className="h-4 w-4" /> Weather Insights
+              </Link>
+              <Link href="/market" className="flex items-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm font-medium text-indigo-800 hover:bg-indigo-100">
+                <LineChart className="h-4 w-4" /> Market Trends
+              </Link>
+              <Link href="/disease" className="flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-medium text-rose-800 hover:bg-rose-100">
+                <Bug className="h-4 w-4" /> Disease Check
+              </Link>
+              <Link href="/schemes" className="flex items-center gap-2 rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-sm font-medium text-teal-800 hover:bg-teal-100">
+                <Landmark className="h-4 w-4" /> Govt Schemes
+              </Link>
             </div>
           </Card>
+
+          <Alert
+            type="info"
+            title="Tip"
+            message="Include crop + location in your question for sharper recommendations."
+          />
         </div>
 
-        {/* Chat Area */}
-        <div className="flex-1 flex flex-col bg-white rounded-lg shadow-lg overflow-hidden max-w-4xl mx-auto w-full lg:w-auto">
-          {/* Header */}
-          <div className="bg-gradient-to-r from-green-600 to-green-700 text-white p-4 flex justify-between items-center">
-            <div className="flex items-center gap-2">
-              <Tractor className="h-6 w-6" />
+        <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-emerald-100 bg-white/90 shadow-2xl backdrop-blur-sm">
+          <div className="flex items-center justify-between border-b border-emerald-100 bg-gradient-to-r from-emerald-700 via-green-700 to-teal-700 p-4 text-white">
+            <div className="flex items-center gap-3">
+              <div className="rounded-xl bg-white/15 p-2">
+                <Tractor className="h-6 w-6" />
+              </div>
               <div>
-                <h1 className="font-bold">Kisan Saathi AI Chat</h1>
-                <p className="text-sm text-green-100">Your smart farming assistant</p>
+                <h1 className="font-bold tracking-wide">Kisan Saathi AI Chat</h1>
+                <p className="text-sm text-emerald-100">Your field decision assistant</p>
               </div>
             </div>
             <select
               value={language}
               onChange={(e) => setLanguage(e.target.value as "en" | "gu")}
-              className="px-3 py-2 bg-green-50 text-green-900 rounded-lg text-sm font-medium"
+              className="rounded-lg bg-white/90 px-3 py-2 text-sm font-medium text-emerald-900"
             >
               <option value="en">English</option>
               <option value="gu">ગુજરાતી</option>
             </select>
           </div>
 
-          {/* Messages */}
-          <div className="flex-1 overflow-y-auto p-6 space-y-4">
+          <div className="border-b border-gray-100 bg-gradient-to-r from-emerald-50 to-cyan-50 px-4 py-3">
+            <div className="flex flex-wrap gap-2">
+              {quickPrompts.map((prompt) => (
+                <button
+                  key={prompt}
+                  type="button"
+                  onClick={() => submitPrompt(prompt)}
+                  disabled={loading}
+                  className="rounded-full border border-emerald-200 bg-white px-3 py-1.5 text-xs font-medium text-emerald-800 hover:border-emerald-400 hover:bg-emerald-50 disabled:opacity-60"
+                >
+                  {prompt}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-y-auto bg-[radial-gradient(circle_at_top,_#f0fdfa_0%,_#ffffff_35%,_#f8fafc_100%)] p-5">
+            <div className="space-y-4">
             {messages.map((message) => (
               <div
                 key={message.id}
-                className={`flex ${message.sender === "user" ? "justify-end" : "justify-start"}`}
+                  className={`flex ${message.sender === "user" ? "justify-end" : "justify-start"}`}
               >
+                  <div className={`flex max-w-3xl items-end gap-2 ${message.sender === "user" ? "flex-row-reverse" : "flex-row"}`}>
+                    <div className={`rounded-full p-2 ${message.sender === "user" ? "bg-emerald-600 text-white" : "bg-white text-emerald-700 border border-emerald-200"}`}>
+                      {message.sender === "user" ? <UserRound className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
+                    </div>
                 <div
-                  className={`max-w-2xl rounded-lg p-4 ${
+                        className={`rounded-2xl p-4 shadow-md ${
                     message.sender === "user"
-                      ? "bg-green-600 text-white rounded-br-none"
-                      : "bg-gray-100 text-gray-800 rounded-bl-none border border-gray-200"
+                            ? "rounded-br-sm bg-gradient-to-r from-emerald-600 to-green-600 text-white"
+                            : "rounded-bl-sm border border-gray-200 bg-white text-gray-800"
                   }`}
                 >
                   {renderMessageContent(message)}
@@ -291,44 +326,45 @@ export default function ChatDashboard() {
                     {new Date(message.timestamp).toLocaleTimeString()}
                   </p>
                 </div>
+                  </div>
               </div>
             ))}
             {loading && (
-              <div className="flex gap-2">
-                <div className="bg-gray-100 rounded-lg p-4 border border-gray-200">
+                <div className="flex gap-2">
+                  <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
                   <div className="flex gap-2">
-                    <div className="h-3 w-3 bg-gray-400 rounded-full animate-bounce"></div>
-                    <div className="h-3 w-3 bg-gray-400 rounded-full animate-bounce delay-100"></div>
-                    <div className="h-3 w-3 bg-gray-400 rounded-full animate-bounce delay-200"></div>
+                      <div className="h-2.5 w-2.5 rounded-full bg-emerald-500 animate-bounce"></div>
+                      <div className="h-2.5 w-2.5 rounded-full bg-emerald-500 animate-bounce delay-100"></div>
+                      <div className="h-2.5 w-2.5 rounded-full bg-emerald-500 animate-bounce delay-200"></div>
+                    </div>
                   </div>
                 </div>
-              </div>
             )}
             <div ref={messagesEndRef} />
+            </div>
           </div>
 
-          {/* Input Area */}
-          <div className="border-t bg-white p-4">
+          <div className="border-t border-emerald-100 bg-white p-4">
             <form onSubmit={handleSendMessage} className="flex gap-3">
               <input
                 type="text"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 placeholder="Ask me about crops, weather, markets, or diseases..."
-                className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-600"
+                className="flex-1 rounded-xl border border-emerald-200 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 disabled={loading}
               />
               <button
                 type="submit"
                 disabled={loading}
-                className="px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 flex items-center gap-2"
+                className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-600 to-green-600 px-4 py-3 font-medium text-white hover:from-emerald-700 hover:to-green-700 disabled:from-gray-400 disabled:to-gray-400"
               >
                 <Send className="h-5 w-5" />
                 <span className="hidden sm:inline">Send</span>
               </button>
             </form>
-            <p className="text-xs text-gray-500 mt-2">
-              💡 Try: "What's the weather?", "Disease in my wheat?", "Rice prices today?"
+            <p className="mt-2 text-xs text-gray-500">
+              Try: "Should I irrigate cotton today in Rajkot?" or "Best farmer scheme for drip irrigation"
             </p>
           </div>
         </div>
