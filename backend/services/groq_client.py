@@ -88,7 +88,7 @@ def generate_vision_response(
                 ],
                 model=model_name,
                 temperature=0.2,
-                max_tokens=1200,
+                max_tokens=1500,
             )
             return chat_completion.choices[0].message.content
         except Exception as e:
